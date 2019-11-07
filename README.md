@@ -8,7 +8,7 @@ it will create ./files directory to save files and listen on port 80
   test filename：test.tar.gz
 
 ### upload
-curl localhost -F f=@test.tar.gz
+curl localhost -T test.tar.gz
 
 ### download 
-curl -O localhost/test.tar.gz
+curl localhost/test.tar.gz -O

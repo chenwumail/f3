@@ -1,6 +1,8 @@
 package main
 
 import (
+	"flag"
+	"fmt"
 	"io/ioutil"
 	"log"
 	"net/http"
@@ -9,13 +11,54 @@ import (
 	"time"
 )
 
-const maxUploadSize = 1024 * 1024 * 1024 // 1 GB
-const uploadPath = "./files"
-const maxExpireHours = 24
+const _1GB = 1024 * 1024 * 1024 // 1 GB
+
+var (
+	help           bool
+	maxUploadSize  int64
+	uploadPath     string
+	maxExpireHours int64
+	host           string
+	port           int
+)
+
+func init() {
+	flag.StringVar(&uploadPath, "d", "./files", "diretory for upload file storage")
+	flag.Int64Var(&maxUploadSize, "l", _1GB, "upload file bytes limit")
+	flag.Int64Var(&maxExpireHours, "e", 0, "hours to keep fo upload files, 0 means keep it for ever")
+	flag.StringVar(&host, "b", "0.0.0.0", "bind ip address")
+	flag.IntVar(&port, "p", 80, "bind port")
+	flag.BoolVar(&help, "h", false, "this help message")
+}
+
+func main() {
+	flag.Parse()
+	if help {
+		fmt.Println("f3 [-b bind_host] [-p port] [-e expire_hours] [-l limit_bytes] [-d dir_upload] [-h]")
+		flag.Usage()
+		os.Exit(-1)
+	}
+	hostPort := fmt.Sprintf("%s:%d", host, port)
+
+	MakeDir(uploadPath)
+
+	fs := http.FileServer(http.Dir(uploadPath))
+	http.HandleFunc("/", uploadDownloadFileHandler(fs))
+	http.HandleFunc("/upload", renderForm())
+	http.HandleFunc("/upload.html", renderForm())
+
+	if maxExpireHours > 0 {
+		log.Print("Upload files while be remove automaticaly after %d hours.", maxExpireHours)
+		go cleanThread()
+	}
+
+	log.Print("Server started on " + hostPort + ", use / for uploading files and /{fileName} for downloading")
+	log.Fatal(http.ListenAndServe(hostPort, nil))
+}
 
 func cleanThread() {
 	for {
-		log.Println("scan expires in " + uploadPath + " ....")
+		log.Printf("scan expires in [%s] every %d hours ...\n", uploadPath, maxExpireHours)
 		removeExpireFiles(uploadPath)
 		time.Sleep(1 * time.Hour)
 	}
@@ -31,7 +74,7 @@ func removeExpireFiles(dirName string) []string {
 		modTime := file.ModTime()
 		now := time.Now()
 		subTime := now.Sub(modTime)
-		if subTime.Minutes() > 60*maxExpireHours {
+		if subTime.Minutes() > float64(maxExpireHours)*60 {
 			filename := dirName + string(os.PathSeparator) + file.Name()
 			log.Println(filename + " expires, deleted.")
 			if err := os.Remove(filename); err != nil {
@@ -47,26 +90,6 @@ func removeExpireFiles(dirName string) []string {
 		*/
 	}
 	return fileList
-}
-
-func main() {
-	hostPort := ":80"
-	if len(os.Args) > 1 {
-		hostPort = os.Args[1]
-	}
-
-	MakeDir(uploadPath)
-
-	fs := http.FileServer(http.Dir(uploadPath))
-	http.HandleFunc("/", uploadDownloadFileHandler(fs))
-	http.HandleFunc("/upload", renderForm())
-	http.HandleFunc("/upload.html", renderForm())
-
-	// http.Handle("/files/", http.StripPrefix("/files", fs))
-	go cleanThread()
-
-	log.Print("Server started on " + hostPort + ", use / for uploading files and /{fileName} for downloading")
-	log.Fatal(http.ListenAndServe(hostPort, nil))
 }
 
 func htmlForm() string {
@@ -146,8 +169,6 @@ func rederSuccess(w http.ResponseWriter, r *http.Request, message string) {
 func renderError(w http.ResponseWriter, r *http.Request, message string, statusCode int) {
 	url := "/?result=" + message
 	http.Redirect(w, r, url, http.StatusFound)
-	// w.WriteHeader(http.StatusBadRequest)
-	// w.Write([]byte(message + "\n"))
 }
 
 func rederSuccessText(w http.ResponseWriter, r *http.Request, message string) {
@@ -167,19 +188,16 @@ func writeBytesToFile(filenameRaw string, fileBytes []byte) (message string, sta
 		filename = "tmp.dat"
 	}
 	newPath := filepath.Join(uploadPath, filename)
-	// fmt.Printf("FileType: %s, File: %s\n", fileType, newPath)
 	log.Printf("upload file: %s\n", newPath)
 
 	// write file
 	newFile, err := os.Create(newPath)
 	if err != nil {
-		//renderError(w, "CANT_WRITE_FILE", http.StatusInternalServerError)
 		return "CANT_WRITE_FILE", false
 	}
 	defer newFile.Close() // idempotent, okay to call twice
 	_, err2 := newFile.Write(fileBytes)
 	if err2 != nil || newFile.Close() != nil {
-		// renderError(w, "CANT_WRITE_FILE", http.StatusInternalServerError)
 		return "CANT_WRITE_FILE", false
 	}
 	return "SUCCESS", true
@@ -265,7 +283,7 @@ func MakeDir(path string) (result bool) {
 // TODO 3. support delete when download (one times link, ?expire=0)
 // TODO 4. support delete link
 // OK 5. support delete after 24 hours (max)
-// TODO 6. support parameters(?e[xpire]=<n>[minutes], [1-60*24(max-expire-hours)], 0 means delete after download)
+// TODO 6. support parameters(?e[xpire]=<n>[minutes], [1-60*24(max-expire-hours)])
 // OK 7. support default page instead file list
-// TODO 8. support start parameter (upload-directory and host-port [ip]:port, max-upload-size, max-expire-hours)
+// OK 8. support command line argument (upload-directory and host-port [ip]:port, max-upload-size, max-expire-hours)
 //         OK host-port

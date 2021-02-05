@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"testing"
 	"time"
 )
 
@@ -48,7 +49,7 @@ func main() {
 	http.HandleFunc("/upload.html", renderForm())
 
 	if maxExpireHours > 0 {
-		log.Print("Upload files while be remove automaticaly after %d hours.", maxExpireHours)
+		log.Printf("Upload files while be remove automaticaly after %d hours.", maxExpireHours)
 		go cleanThread()
 	}
 
@@ -287,3 +288,7 @@ func MakeDir(path string) (result bool) {
 // OK 7. support default page instead file list
 // OK 8. support command line argument (upload-directory and host-port [ip]:port, max-upload-size, max-expire-hours)
 //         OK host-port
+
+func Testf3(t *testing.T) {
+
+}

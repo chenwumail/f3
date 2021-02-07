@@ -8,7 +8,6 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"testing"
 	"time"
 )
 
@@ -18,6 +17,7 @@ var (
 	help           bool
 	maxUploadSize  int64
 	uploadPath     string
+	enableSubDir   bool
 	maxExpireHours int64
 	host           string
 	port           int
@@ -29,13 +29,14 @@ func init() {
 	flag.Int64Var(&maxExpireHours, "e", 0, "hours to keep fo upload files, 0 means keep it for ever")
 	flag.StringVar(&host, "b", "0.0.0.0", "bind ip address")
 	flag.IntVar(&port, "p", 80, "bind port")
+	flag.BoolVar(&enableSubDir, "s", false, "enable sub directory")
 	flag.BoolVar(&help, "h", false, "this help message")
 }
 
 func main() {
 	flag.Parse()
 	if help {
-		fmt.Println("f3 [-b bind_host] [-p port] [-e expire_hours] [-l limit_bytes] [-d dir_upload] [-h]")
+		log.Println("f3 [-b bind_host] [-p port] [-e expire_hours] [-l limit_bytes] [-d dir_upload] [-s] [-h]")
 		flag.Usage()
 		os.Exit(-1)
 	}
@@ -54,6 +55,14 @@ func main() {
 	}
 
 	log.Print("Server started on " + hostPort + ", use / for uploading files and /{fileName} for downloading")
+	features := ""
+	if maxExpireHours <= 0 {
+		features += " -expire-clean "
+	}
+	if enableSubDir {
+		features += " +enable-sub-dir "
+	}
+	log.Print("features: " + features)
 	log.Fatal(http.ListenAndServe(hostPort, nil))
 }
 
@@ -217,6 +226,13 @@ func uploadDownloadFileHandler(fs http.Handler) http.HandlerFunc {
 
 		if r.Method == "PUT" {
 			filename := r.URL.Path
+			paths, _ := filepath.Split(r.URL.Path)
+			subUploadPath := uploadPath + paths
+			// fmt.Println(paths, filename, subUploadPath)
+			if enableSubDir && paths != "/" {
+				MakeDir(subUploadPath)
+				log.Print("create sub directory: " + subUploadPath)
+			}
 			fileBytes, _ := ioutil.ReadAll(r.Body)
 			msg, result := writeBytesToFile(filename, fileBytes)
 			if result {
@@ -263,7 +279,7 @@ func MakeDir(path string) (result bool) {
 		if stat.IsDir() {
 			return true
 		} else {
-			panic(path + " is reguler file, You need remove manully.")
+			log.Fatal(path + " is reguler file, You need remove manully.")
 			return false
 		}
 	}
@@ -288,7 +304,3 @@ func MakeDir(path string) (result bool) {
 // OK 7. support default page instead file list
 // OK 8. support command line argument (upload-directory and host-port [ip]:port, max-upload-size, max-expire-hours)
 //         OK host-port
-
-func Testf3(t *testing.T) {
-
-}

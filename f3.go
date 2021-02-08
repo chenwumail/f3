@@ -105,7 +105,7 @@ func removeExpireFiles(dirName string) []string {
 	return fileList
 }
 
-func htmlForm() string {
+func htmlForm(host string) string {
 	html := `
 	<!DOCTYPE html>
 	<html>
@@ -142,8 +142,8 @@ func htmlForm() string {
 				<button class="btn btn-default btn-lg" type="submit" style="color:#4998e5;"><span class="glyphicon glyphicon-open" style="margin-right:5px;position: relative;"></span>Upload</button>
 				<input id="btn-upload" type="file" name="f" style="position:absolute;top:0;left:0;right:0;bottom:0;width:100%;height: 100%;opacity:0;cursor: pointer;" />
 			</form>
-			<p style="color:#fff;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Upload: <code style="color:#666;">curl <hostname:port|domain-name> -T test.tgz </code> </p>
-			<p style="color:#fff;">Download: <code style="color:#666;">curl <hostname:port|domain-name>/test.tgz -O </code> </p>
+			<p style="color:#fff;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Upload: <code style="color:#666;">curl ` + host + ` -T test.tgz </code> </p>
+			<p style="color:#fff;">Download: <code style="color:#666;">curl ` + host + `/test.tgz -O </code> </p>
 		</div>
 		<script src="//static.chimeroi.com/finance/jquery/1.12.1/jquery.min.js"></script>
 		<script>
@@ -165,13 +165,13 @@ func htmlForm() string {
 func renderForm() http.HandlerFunc {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(htmlForm()))
+		w.Write([]byte(htmlForm(r.Host)))
 	})
 }
 
 func redenIndex(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
-	w.Write([]byte(htmlForm()))
+	w.Write([]byte(htmlForm(r.Host)))
 }
 
 func rederSuccess(w http.ResponseWriter, r *http.Request, message string) {

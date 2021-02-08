@@ -1,0 +1,11 @@
+f3.service
+[Unit]
+Description=f3
+
+[Service]
+ExecStart=/usr/local/f3/f3 -e 24
+WorkingDirectory=/usr/local/f3
+Restart=always
+
+[Install]
+WantedBy=default.target

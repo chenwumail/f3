@@ -1,8 +1,10 @@
 package main
 
 import (
+	"bufio"
 	"flag"
 	"fmt"
+	"io"
 	"io/ioutil"
 	"log"
 	"net/http"
@@ -11,7 +13,8 @@ import (
 	"time"
 )
 
-const _1GB = 1024 * 1024 * 1024 // 1 GB
+const UPLOAD_SIZE_1GB = 1024 * 1024 * 1024
+const BUFFER_SIZE_1MB = 1048576
 
 var (
 	help           bool
@@ -25,7 +28,7 @@ var (
 
 func init() {
 	flag.StringVar(&uploadPath, "d", "./files", "diretory for upload file storage")
-	flag.Int64Var(&maxUploadSize, "l", _1GB, "upload file bytes limit")
+	flag.Int64Var(&maxUploadSize, "l", UPLOAD_SIZE_1GB, "upload file bytes limit")
 	flag.Int64Var(&maxExpireHours, "e", 0, "hours to keep fo upload files, 0 means keep it for ever")
 	flag.StringVar(&host, "b", "0.0.0.0", "bind ip address")
 	flag.IntVar(&port, "p", 80, "bind port")
@@ -191,7 +194,7 @@ func renderErrorText(w http.ResponseWriter, r *http.Request, message string, sta
 	w.Write([]byte(message + "\n"))
 }
 
-func writeBytesToFile(filenameRaw string, fileBytes []byte) (message string, status bool) {
+func writeBytesToFile(filenameRaw string, uploadFileStream io.Reader) (message string, status bool) {
 	filename := filenameRaw
 	log.Println(filename)
 	if len(filename) < 1 {
@@ -205,11 +208,32 @@ func writeBytesToFile(filenameRaw string, fileBytes []byte) (message string, sta
 	if err != nil {
 		return "CANT_WRITE_FILE", false
 	}
-	defer newFile.Close() // idempotent, okay to call twice
-	_, err2 := newFile.Write(fileBytes)
-	if err2 != nil || newFile.Close() != nil {
-		return "CANT_WRITE_FILE", false
+	defer newFile.Close()
+
+	reader := bufio.NewReader(uploadFileStream)
+	writer := bufio.NewWriter(newFile)
+
+	buf := make([]byte, BUFFER_SIZE_1MB)
+	sum := 0
+	for {
+		nBytesRead, readErr := reader.Read(buf)
+		if readErr != nil && readErr != io.EOF {
+			fmt.Printf("read error, last %d bytes read, total %d bytes read,  err: %v\n", nBytesRead, sum, readErr)
+			return "CANT_READ_FILE", false
+		}
+		mBytesWrite, writeErr := writer.Write(buf[0:nBytesRead])
+		if writeErr != nil {
+			fmt.Printf("write error, last %d bytes write, total write %d bytes, err: %v\n", mBytesWrite, sum+mBytesWrite, writeErr)
+			return "CANT_WRITE_FILE", false
+		}
+		if nBytesRead < BUFFER_SIZE_1MB || readErr == io.EOF {
+			fmt.Printf("finished last %d bytes read, buffer size: %d, total %d bytes read,  err: %v\n", nBytesRead, BUFFER_SIZE_1MB, sum+nBytesRead, readErr)
+			writer.Flush()
+			break
+		}
+		sum += nBytesRead
 	}
+
 	return "SUCCESS", true
 }
 
@@ -228,13 +252,13 @@ func uploadDownloadFileHandler(fs http.Handler) http.HandlerFunc {
 			filename := r.URL.Path
 			paths, _ := filepath.Split(r.URL.Path)
 			subUploadPath := uploadPath + paths
-			// fmt.Println(paths, filename, subUploadPath)
+
 			if enableSubDir && paths != "/" {
 				MakeDir(subUploadPath)
 				log.Print("create sub directory: " + subUploadPath)
 			}
-			fileBytes, _ := ioutil.ReadAll(r.Body)
-			msg, result := writeBytesToFile(filename, fileBytes)
+
+			msg, result := writeBytesToFile(filename, r.Body)
 			if result {
 				rederSuccessText(w, r, "Success. Download by: curl "+r.Host+filename+" -O")
 			} else {
@@ -242,33 +266,30 @@ func uploadDownloadFileHandler(fs http.Handler) http.HandlerFunc {
 			}
 			return
 		}
-		// validate file size
-		r.Body = http.MaxBytesReader(w, r.Body, maxUploadSize)
-		if err := r.ParseMultipartForm(maxUploadSize); err != nil {
-			renderError(w, r, "FILE_TOO_BIG", http.StatusBadRequest)
-			return
-		}
 
-		file, handler, err := r.FormFile("f")
-		if err != nil {
-			renderError(w, r, "INVALID_FILE", http.StatusBadRequest)
-			return
-		}
-		defer file.Close()
+		if r.Method == "POST" {
+			// validate file size
+			r.Body = http.MaxBytesReader(w, r.Body, maxUploadSize)
+			if err := r.ParseMultipartForm(maxUploadSize); err != nil {
+				renderError(w, r, "FILE_TOO_BIG", http.StatusBadRequest)
+				return
+			}
 
-		fileBytes, err := ioutil.ReadAll(file)
-		if err != nil {
-			renderError(w, r, "INVALID_FILE", http.StatusBadRequest)
-			return
-		}
+			uploadFileStream, handler, err := r.FormFile("f")
+			if err != nil {
+				renderError(w, r, "INVALID_FILE", http.StatusBadRequest)
+				return
+			}
+			defer uploadFileStream.Close()
 
-		filename := handler.Filename
-		msg, result := writeBytesToFile(filename, fileBytes)
-		if result {
-			// w.Write([]byte("SUCCESS\n"))
-			rederSuccess(w, r, "Success. Download by: curl "+r.Host+"/"+filename+" -O")
-		} else {
-			renderError(w, r, msg, http.StatusBadRequest)
+			filename := handler.Filename
+			msg, result := writeBytesToFile(filename, uploadFileStream)
+			if result {
+				rederSuccess(w, r, "Success. Download by: curl "+r.Host+"/"+filename+" -O")
+			} else {
+				renderError(w, r, msg, http.StatusBadRequest)
+			}
+			return
 		}
 	})
 }
@@ -304,3 +325,4 @@ func MakeDir(path string) (result bool) {
 // OK 7. support default page instead file list
 // OK 8. support command line argument (upload-directory and host-port [ip]:port, max-upload-size, max-expire-hours)
 //         OK host-port
+// OK 9. support big as 1G file upload, only 1 - 2 MB memory usage.

@@ -214,7 +214,7 @@ func writeBytesToFile(filenameRaw string, uploadFileStream io.Reader) (message s
 	writer := bufio.NewWriter(newFile)
 
 	buf := make([]byte, BUFFER_SIZE_1MB)
-	sum := 0
+	var sum int = 0
 	for {
 		nBytesRead, readErr := reader.Read(buf)
 		if readErr != nil && readErr != io.EOF {
@@ -226,10 +226,13 @@ func writeBytesToFile(filenameRaw string, uploadFileStream io.Reader) (message s
 			fmt.Printf("write error, last %d bytes write, total write %d bytes, err: %v\n", mBytesWrite, sum+mBytesWrite, writeErr)
 			return "CANT_WRITE_FILE", false
 		}
-		if nBytesRead < BUFFER_SIZE_1MB || readErr == io.EOF {
+		if readErr == io.EOF {
 			fmt.Printf("finished last %d bytes read, buffer size: %d, total %d bytes read,  err: %v\n", nBytesRead, BUFFER_SIZE_1MB, sum+nBytesRead, readErr)
 			writer.Flush()
 			break
+		}
+		if sum > int(maxUploadSize) {
+			return "FILE_TOO_BIG2", false
 		}
 		sum += nBytesRead
 	}
